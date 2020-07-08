@@ -32,7 +32,7 @@
  */
 class LpImuProxy
 {
- public:
+public:
     LpImuProxy() : private_nh("~")
     {
         // Initialize mapping of LPMS sensor types
@@ -58,8 +58,8 @@ class LpImuProxy
         manager = LpmsSensorManagerFactory();
         imu = manager->addSensor(device_map[sensor_model], port.c_str());
 
-        imu_pub = nh.advertise<sensor_msgs::Imu>("imu",1);
-        mag_pub = nh.advertise<sensor_msgs::MagneticField>("mag",1);
+        imu_pub = nh.advertise<sensor_msgs::Imu>("imu", 1);
+        mag_pub = nh.advertise<sensor_msgs::MagneticField>("mag", 1);
 
         TimestampSynchronizer::Options defaultSyncOptions;
         defaultSyncOptions.useMedianFilter = true;
@@ -70,11 +70,10 @@ class LpImuProxy
         defaultSyncOptions.alfa_HoltWinters_early = 5e-2;
         defaultSyncOptions.beta_HoltWinters_early = 1e-3;
         defaultSyncOptions.earlyClamp = true;
-        defaultSyncOptions.earlyClampWindow = 120*200;
+        defaultSyncOptions.earlyClampWindow = 120 * 200;
         defaultSyncOptions.timeOffset = 0.0;
         defaultSyncOptions.initialB_HoltWinters = -3.4e-7;
         pstampSynchronizer = std::make_unique<TimestampSynchronizer>(defaultSyncOptions);
-
     }
 
     ~LpImuProxy(void)
@@ -83,10 +82,30 @@ class LpImuProxy
         delete manager;
     }
 
-    void update(const ros::TimerEvent& te)
+    void imu_init(int off_set_mode, bool auto_cali)
+    {
+        if (imu->getConnectionStatus() == SENSOR_CONNECTION_CONNECTED)
+        {
+            if (auto_cali)
+            {
+                imu->startCalibrateGyro();
+                ros::Duration(15).sleep();
+                ROS_INFO("=======GYRO CALIBRATION DONE=======");
+            }
+            imu->setOrientationOffset(off_set_mode);
+            ros::Duration(3).sleep();
+            ROS_INFO("=======HEADING OFFSET HAS BEEN CONFIGURED=======");
+        }
+        else
+        {
+            ROS_INFO("CONNECTION FAILED AND CFG FAILED");
+        }
+    }
+
+    void update(const ros::TimerEvent &te)
     {
         if (imu->getConnectionStatus() == SENSOR_CONNECTION_CONNECTED &&
-                imu->hasImuData())
+            imu->hasImuData())
         {
             data = imu->getCurrentData();
 
@@ -104,28 +123,54 @@ class LpImuProxy
 
             // Fill angular velocity data
             // - scale from deg/s to rad/s
-            imu_msg.angular_velocity.x = data.g[0]*3.1415926/180;
-            imu_msg.angular_velocity.y = data.g[1]*3.1415926/180;
-            imu_msg.angular_velocity.z = data.g[2]*3.1415926/180;
+            imu_msg.angular_velocity.x = data.g[0] * 3.1415926 / 180;
+            imu_msg.angular_velocity.y = data.g[1] * 3.1415926 / 180;
+            imu_msg.angular_velocity.z = data.g[2] * 3.1415926 / 180;
 
             // Fill linear acceleration data
-            imu_msg.linear_acceleration.x = -data.a[0]*9.81;
-            imu_msg.linear_acceleration.y = -data.a[1]*9.81;
-            imu_msg.linear_acceleration.z = -data.a[2]*9.81;
+            imu_msg.linear_acceleration.x = -data.a[0] * 9.81;
+            imu_msg.linear_acceleration.y = -data.a[1] * 9.81;
+            imu_msg.linear_acceleration.z = -data.a[2] * 9.81;
 
             // \TODO: Fill covariance matrices
-            // msg.orientation_covariance = ...
-            // msg.angular_velocity_covariance = ...
-            // msg linear_acceleration_covariance = ...
+            imu_msg.orientation_covariance[0] = 1000000;
+            imu_msg.orientation_covariance[1] = 0;
+            imu_msg.orientation_covariance[2] = 0;
+            imu_msg.orientation_covariance[3] = 0;
+            imu_msg.orientation_covariance[4] = 1e6;
+            imu_msg.orientation_covariance[5] = 0;
+            imu_msg.orientation_covariance[6] = 0;
+            imu_msg.orientation_covariance[7] = 0;
+            imu_msg.orientation_covariance[8] = 0.000001;
+
+            imu_msg.linear_acceleration_covariance[0] = -1;
+            imu_msg.linear_acceleration_covariance[1] = 0;
+            imu_msg.linear_acceleration_covariance[2] = 0;
+            imu_msg.linear_acceleration_covariance[3] = 0;
+            imu_msg.linear_acceleration_covariance[4] = 0;
+            imu_msg.linear_acceleration_covariance[5] = 0;
+            imu_msg.linear_acceleration_covariance[6] = 0;
+            imu_msg.linear_acceleration_covariance[7] = 0;
+            imu_msg.linear_acceleration_covariance[8] = 0;
+
+            imu_msg.angular_velocity_covariance[0] = 1000000;
+            imu_msg.angular_velocity_covariance[1] = 0;
+            imu_msg.angular_velocity_covariance[2] = 0;
+            imu_msg.angular_velocity_covariance[3] = 0;
+            imu_msg.angular_velocity_covariance[4] = 1e6;
+            imu_msg.angular_velocity_covariance[5] = 0;
+            imu_msg.angular_velocity_covariance[6] = 0;
+            imu_msg.angular_velocity_covariance[7] = 0;
+            imu_msg.angular_velocity_covariance[8] = 0.000001;
 
             /* Fill the magnetometer message */
             mag_msg.header.stamp = imu_msg.header.stamp;
             mag_msg.header.frame_id = frame_id;
 
             // Units are microTesla in the LPMS library, Tesla in ROS.
-            mag_msg.magnetic_field.x = data.b[0]*1e-6;
-            mag_msg.magnetic_field.y = data.b[1]*1e-6;
-            mag_msg.magnetic_field.z = data.b[2]*1e-6;
+            mag_msg.magnetic_field.x = data.b[0] * 1e-6;
+            mag_msg.magnetic_field.y = data.b[1] * 1e-6;
+            mag_msg.magnetic_field.z = data.b[2] * 1e-6;
 
             // Publish the messages
             imu_pub.publish(imu_msg);
@@ -136,18 +181,17 @@ class LpImuProxy
     void run(void)
     {
         // The timer ensures periodic data publishing
-        updateTimer = ros::Timer(nh.createTimer(ros::Duration(0.1/rate),
+        updateTimer = ros::Timer(nh.createTimer(ros::Duration(0.1 / rate),
                                                 &LpImuProxy::update,
                                                 this));
     }
 
- private:
-
+private:
     // Access to LPMS data
-    LpmsSensorManagerI* manager;
-    LpmsSensorI* imu;
+    LpmsSensorManagerI *manager;
+    LpmsSensorI *imu;
     ImuData data;
-    std::map<std::string,int> device_map;
+    std::map<std::string, int> device_map;
 
     // Access to ROS node
     ros::NodeHandle nh, private_nh;
@@ -175,7 +219,8 @@ int main(int argc, char *argv[])
     ros::NodeHandle nh, private_nh;
 
     LpImuProxy lpImu;
-
+    ros::Duration(10).sleep();
+    lpImu.imu_init(1, true);
     lpImu.run();
 
     ros::spin();
